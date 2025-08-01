@@ -10,7 +10,7 @@ import numpy as np
 app = FastAPI()
 
 # Set your Gemini API key
-os.environ["GOOGLE_API_KEY"] = "AIzaSyCUnF5Y3iE1O8VMr1UUyJ50Zdwt1N7DDZ4"
+os.environ["GOOGLE_API_KEY"] = ""
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 class HackRxInputSimple(BaseModel):
