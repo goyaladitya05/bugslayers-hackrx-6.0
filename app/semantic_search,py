@@ -1,0 +1,23 @@
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+
+class SemanticSearch:
+    def __init__(self, model_name="all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
+        self.index = None
+        self.text_chunks = []
+
+    def build_index(self, chunks):
+        self.text_chunks = chunks
+        embeddings = self.model.encode(chunks, convert_to_numpy=True)
+        self.index = faiss.IndexFlatL2(embeddings.shape[1])
+        self.index.add(embeddings)
+
+    def query(self, question, top_k=3):
+        q_emb = self.model.encode([question], convert_to_numpy=True)
+        D, I = self.index.search(q_emb, top_k)
+        results = []
+        for idx in I[0]:
+            results.append(self.text_chunks[idx])
+        return results
