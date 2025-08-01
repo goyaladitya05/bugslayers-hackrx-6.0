@@ -1,18 +1,28 @@
-#from typing import list
-from langchain.document_loaders import PyPDFLoader #splits pdf into page level docs
-from langchain.text_splitter import RecursiveCharacterTextSplitter #breaks documents into small chunks for sending to llms, as they have a token window
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredEmailLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+import os
 
-def load_and_chunk_pdf(path: str) -> list:
-    loader = PyPDFLoader(path)
-    pages = loader.load()
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=100,
-        seperators=["\n\n","\n","."," "]
-    )
+def load_and_chunk_document(file_path: str) -> list[Document]:
+    ext = os.path.splitext(file_path)[-1].lower()
 
-    docs=splitter.split_documents(pages)
-    return [doc.page_content for doc in docs]
+    if ext == '.pdf':
+        loader = PyPDFLoader(file_path)
+    elif ext == '.docx':
+        loader = Docx2txtLoader(file_path)
+    elif ext == '.eml':
+        loader = UnstructuredEmailLoader(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
 
-x=load_and_chunk_pdf("wang24n.pdf")
-print(x)
+    # This returns a list of Document objects
+    documents = loader.load()
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunked_documents = splitter.split_documents(documents)
+
+    print("[DEBUG] Loaded", len(chunked_documents), "document chunks")
+    print("[DEBUG] Type of first chunk:", type(chunked_documents[0]))
+    print("[DEBUG] Preview:", chunked_documents[0].page_content[:200])
+
+    return chunked_documents

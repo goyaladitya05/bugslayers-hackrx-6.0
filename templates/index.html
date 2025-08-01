@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RAG Upload</title>
+</head>
+<body>
+    <h2>Upload Policy/Contract File</h2>
+    <form action="/upload/" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required><br><br>
+        <button type="submit">Upload</button>
+    </form>
+
+    <hr>
+
+    <h2>Ask a Question</h2>
+    <form action="/query/" method="post">
+        <input type="text" name="question" placeholder="Enter your query" size="60" required><br><br>
+        <button type="submit">Ask</button>
+    </form>
+</body>
+</html>
