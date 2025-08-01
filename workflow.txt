@@ -1,0 +1,38 @@
+                       ┌────────────────────────────┐
+                       │   User enters a question   │
+                       │  e.g., "Can I cancel this  │
+                       │     policy after 6 months?"│
+                       └────────────┬───────────────┘
+                                    │
+                                    ▼
+                         ┌────────────────────┐
+                         │ Convert to embedding│ ◄────────┐
+                         └────────┬───────────┘           │
+                                  │                       │
+                                  ▼                       │
+               ┌──────────────────────────────┐           │
+               │   Search Top-K Similar Chunks│           │
+               │     from FAISS Vector DB     │           │
+               └────────────┬─────────────────┘           │
+                            ▼                             │
+              ┌──────────────────────────────┐            │
+              │ Retrieve Relevant Passages   │            │
+              │ e.g., Clause 2.3, Policy Info│            │
+              └────────────┬─────────────────┘            │
+                            ▼                             │
+          ┌────────────────────────────────────────────┐  │
+          │ Prompt Template:                            │  │
+          │ "Use the context below to answer the query. │  │
+          │ Context: [...]                              │  │
+          │ Question: Can I cancel this policy?"        │  │
+          └────────────────────────┬───────────────────┘  │
+                                   ▼                      │
+                    ┌───────────────────────────────┐     │
+                    │   Gemini LLM API (Chat)       │     │
+                    │   Answers using context only  │     │
+                    └──────────────┬────────────────┘     │
+                                   ▼                      │
+                         ┌─────────────────────┐          │
+                         │  Final Answer shown │ ◄────────┘
+                         │ to user via FastAPI │
+                         └─────────────────────┘
