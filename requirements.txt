@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-python-multipart
 requests
 python-docx
 PyMuPDF
@@ -8,5 +7,4 @@ faiss-cpu
 sentence-transformers
 google-generativeai
 pydantic>=2.0
-email
 python-dotenv
