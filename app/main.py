@@ -6,12 +6,21 @@ import google.generativeai as genai
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import docx
+from email import policy
+from email.parser import BytesParser
+import mimetypes
+import faiss
+from dotenv import load_dotenv
+load_dotenv()
 
 app = FastAPI()
 
-# Set your Gemini API key
 os.environ["GOOGLE_API_KEY"] = ""
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+if not os.getenv("GOOGLE_API_KEY"):
+    raise RuntimeError("GOOGLE_API_KEY environment variable not set.")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 class HackRxInputSimple(BaseModel):
     documents: str
@@ -19,10 +28,37 @@ class HackRxInputSimple(BaseModel):
 
 def extract_text_from_pdf(file_path):
     doc = fitz.open(file_path)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+    return "".join(page.get_text() for page in doc)
+
+def extract_text_from_docx(file_path):
+    doc = docx.Document(file_path)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def extract_text_from_eml(file_path):
+    with open(file_path, 'rb') as f:
+        msg = BytesParser(policy=policy.default).parse(f)
+    return msg.get_body(preferencelist=('plain')).get_content()
+
+def extract_text(file_path):
+    mime, _ = mimetypes.guess_type(file_path)
+    if mime == "application/pdf":
+        return extract_text_from_pdf(file_path)
+    elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return extract_text_from_docx(file_path)
+    elif mime == "message/rfc822" or file_path.endswith(".eml"):
+        return extract_text_from_eml(file_path)
+    else:
+        raise ValueError("Unsupported file type")
+
+def build_faiss_index(embeddings):
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(embeddings)
+    return index
+
+def search_faiss(index, query_emb, top_k=1):
+    D, I = index.search(query_emb, top_k)
+    return I[0]
 
 def chunk_text(text, chunk_size=1000, overlap=200):
     chunks = []
@@ -41,42 +77,67 @@ def hackrx_run(
     payload: HackRxInputSimple,
     authorization: str = Header(None)
 ):
-    # Download PDF to temp file
+    # Download the document
     response = requests.get(payload.documents)
     if response.status_code != 200:
         raise HTTPException(status_code=400, detail="Failed to download document")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(response.content)
-        pdf_path = tmp.name
 
-    # Extract and chunk text
-    text = extract_text_from_pdf(pdf_path)
+    # Detect content type from HTTP header
+    content_type = response.headers.get("Content-Type", "")
+    if "pdf" in content_type:
+        suffix = ".pdf"
+    elif "word" in content_type:
+        suffix = ".docx"
+    elif "rfc822" in content_type or "message" in content_type:
+        suffix = ".eml"
+    else:
+        suffix = ".bin"  # fallback
+
+    # Save file to temp
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(response.content)
+        file_path = tmp.name
+
+    # Extract text and chunk
+    text = extract_text(file_path)
     chunks = chunk_text(text)
 
-    # Embed chunks using a local model (for semantic search)
+    # Embed and build index
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
     chunk_embeddings = embed_texts(chunks, embedder)
+    faiss_index = build_faiss_index(chunk_embeddings)
 
-    # Gemini model for answering
+    # Gemini model
     gemini = genai.GenerativeModel("models/gemini-2.5-pro")
 
     results = []
     for question in payload.questions:
-        # Embed the question
         q_emb = embed_texts([question], embedder)
-        # Find the most relevant chunk
-        sims = cosine_similarity(q_emb, chunk_embeddings)[0]
-        best_idx = int(np.argmax(sims))
+        indices = search_faiss(faiss_index, q_emb, top_k=1)
+        best_idx = int(indices[0])
         best_chunk = chunks[best_idx]
+        similarity_score = float(cosine_similarity(q_emb, chunk_embeddings)[0][best_idx])
 
-        # Ask Gemini using only the best chunk
-        prompt = f"Given this policy excerpt:\n\n{best_chunk}\n\nAnswer this question: {question}"
-        response = gemini.generate_content(prompt)
-        answer = response.text if hasattr(response, "text") else str(response)
+        prompt = (
+            f"You are an insurance policy expert. Refer only to the provided excerpt below.\n\n"
+            f"--- START OF EXCERPT ---\n{best_chunk}\n--- END OF EXCERPT ---\n\n"
+            f"Answer the following question **strictly based on the above excerpt**, using professional and precise language:\n"
+            f"{question}\n\n"
+            f"Do not guess. If the answer is not present, respond with: 'Information not available in the provided excerpt.'"
+)
+
+
+        try:
+            response = gemini.generate_content(prompt)
+            answer = response.text if hasattr(response, "text") else str(response)
+        except Exception as e:
+            answer = f"Gemini error: {e}"
+
         results.append({
             "question": question,
             "answer": answer,
-            "context_excerpt": best_chunk
+            "context_excerpt": best_chunk,
+            "similarity_score": similarity_score
         })
 
     return {"answers": results}
