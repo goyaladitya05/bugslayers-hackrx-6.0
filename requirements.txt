@@ -10,7 +10,6 @@ numpy~=2.2.6
 docx~=0.2.4
 fitz
 typing
-mimetypes
 dotenv
 tempfile
 os
