@@ -16,7 +16,7 @@ load_dotenv()
 
 app = FastAPI()
 
-os.environ["GOOGLE_API_KEY"] = ""
+os.environ["GOOGLE_API_KEY"] = "AIzaSyB4mLfobM_4ExIZPoqgU1c5O-MmHsbuPw0"
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 if not os.getenv("GOOGLE_API_KEY"):
     raise RuntimeError("GOOGLE_API_KEY environment variable not set.")
@@ -119,13 +119,12 @@ def hackrx_run(
         similarity_score = float(cosine_similarity(q_emb, chunk_embeddings)[0][best_idx])
 
         prompt = (
-            f"You are an insurance policy expert. Refer only to the provided excerpt below.\n\n"
-            f"--- START OF EXCERPT ---\n{best_chunk}\n--- END OF EXCERPT ---\n\n"
-            f"Answer the following question **strictly based on the above excerpt**, using professional and precise language:\n"
-            f"{question}\n\n"
+            f"You are an insurance policy expert. Refer only to the provided excerpt below. "
+            f"--- START OF EXCERPT --- {best_chunk} --- END OF EXCERPT --- "
+            f"Answer the following question strictly based on the above excerpt, using professional and precise language: "
+            f"{question} "
             f"Do not guess. If the answer is not present, respond with: 'Information not available in the provided excerpt.'"
-)
-
+        )
 
         try:
             response = gemini.generate_content(prompt)
@@ -136,8 +135,8 @@ def hackrx_run(
         results.append({
             "question": question,
             "answer": answer,
-            "context_excerpt": best_chunk,
-            "similarity_score": similarity_score
+            #"context_excerpt": best_chunk,
+            #"similarity_score": similarity_score
         })
 
     return {"answers": results}
