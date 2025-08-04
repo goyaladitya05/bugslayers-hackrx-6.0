@@ -1,21 +1,32 @@
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 import tempfile, requests, os
-import mimetypes
-from dotenv import load_dotenv
+import fitz
+import google.generativeai as genai
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+import docx
 from email import policy
 from email.parser import BytesParser
-import fitz
-import docx
-
+import mimetypes
+import faiss
+from dotenv import load_dotenv
 load_dotenv()
+
 app = FastAPI()
+
+HACKRX_SECRET = os.getenv("HACKRX_SECRET")
+GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
+
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+if not os.getenv("GOOGLE_API_KEY"):
+    raise RuntimeError("GOOGLE_API_KEY environment variable not set.")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 class HackRxInputSimple(BaseModel):
     documents: str
     questions: list[str]
-
-# --- File parsers ---
 
 def extract_text_from_pdf(file_path):
     doc = fitz.open(file_path)
@@ -41,7 +52,15 @@ def extract_text(file_path):
     else:
         raise ValueError("Unsupported file type")
 
-# --- Text processing utils ---
+def build_faiss_index(embeddings):
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(embeddings)
+    return index
+
+def search_faiss(index, query_emb, top_k=1):
+    D, I = index.search(query_emb, top_k)
+    return I[0]
 
 def chunk_text(text, chunk_size=1000, overlap=200):
     chunks = []
@@ -52,40 +71,27 @@ def chunk_text(text, chunk_size=1000, overlap=200):
         start += chunk_size - overlap
     return chunks
 
-def build_faiss_index(embeddings):
-    import faiss
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(embeddings)
-    return index
-
-def search_faiss(index, query_emb, top_k=1):
-    D, I = index.search(query_emb, top_k)
-    return I[0]
-
 def embed_texts(texts, model):
     return model.encode(texts, convert_to_numpy=True)
 
 @app.post("/hackrx/run")
-def hackrx_run(payload: HackRxInputSimple, authorization: str = Header(None)):
-    # Late imports for heavy modules
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity
-    import google.generativeai as genai
+def hackrx_run(
+    payload: HackRxInputSimple,
+    authorization: str = Header(None)
+):
+    # Validate the token
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
 
-    # Load Gemini key and model
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY environment variable not set.")
-    genai.configure(api_key=api_key)
-    gemini = genai.GenerativeModel("models/gemini-2.5-pro")
-
+    token = authorization.split(" ")[1]
+    if token != HACKRX_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid token")
     # Download the document
     response = requests.get(payload.documents)
     if response.status_code != 200:
         raise HTTPException(status_code=400, detail="Failed to download document")
 
-    # Detect content type
+    # Detect content type from HTTP header
     content_type = response.headers.get("Content-Type", "")
     if "pdf" in content_type:
         suffix = ".pdf"
@@ -94,14 +100,14 @@ def hackrx_run(payload: HackRxInputSimple, authorization: str = Header(None)):
     elif "rfc822" in content_type or "message" in content_type:
         suffix = ".eml"
     else:
-        suffix = ".bin"
+        suffix = ".bin"  # fallback
 
     # Save file to temp
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(response.content)
         file_path = tmp.name
 
-    # Extract and chunk text
+    # Extract text and chunk
     text = extract_text(file_path)
     chunks = chunk_text(text)
 
@@ -109,6 +115,9 @@ def hackrx_run(payload: HackRxInputSimple, authorization: str = Header(None)):
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
     chunk_embeddings = embed_texts(chunks, embedder)
     faiss_index = build_faiss_index(chunk_embeddings)
+
+    # Gemini model
+    gemini = genai.GenerativeModel("models/gemini-2.5-pro")
 
     results = []
     for question in payload.questions:
@@ -135,8 +144,8 @@ def hackrx_run(payload: HackRxInputSimple, authorization: str = Header(None)):
         results.append({
             "question": question,
             "answer": answer,
-            # "context_excerpt": best_chunk,
-            # "similarity_score": similarity_score
+            #"context_excerpt": best_chunk,
+            #"similarity_score": similarity_score
         })
 
     return {"answers": results}
@@ -144,7 +153,3 @@ def hackrx_run(payload: HackRxInputSimple, authorization: str = Header(None)):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-@app.get("/")
-def root():
-    return {"message": "HackRx backend is up!"}
