@@ -154,6 +154,12 @@ def hackrx_run(
 def health_check():
     return {"status": "ok"}
 
+import inspect
+
+print("🔍 Registered Routes:")
+for route in app.routes:
+    print(f"{route.path} [{','.join(route.methods)}]")
+
 '''
 import psutil
 import os
