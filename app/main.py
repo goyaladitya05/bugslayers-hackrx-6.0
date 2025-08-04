@@ -112,7 +112,7 @@ def hackrx_run(
     chunks = chunk_text(text)
 
     # Embed and build index
-    embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    embedder = SentenceTransformer("paraphrase-MiniLM-L3-v2")
     chunk_embeddings = embed_texts(chunks, embedder)
     faiss_index = build_faiss_index(chunk_embeddings)
 
@@ -153,3 +153,16 @@ def hackrx_run(
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+'''
+import psutil
+import os
+
+def log_memory_usage(stage: str = "Current"):
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / 1024 / 1024  # in MB
+    print(f"[{stage}] Memory usage: {mem_mb:.2f} MB")
+
+log_memory_usage("After loading SentenceTransformer")
+
+'''
