@@ -140,3 +140,7 @@ def hackrx_run(
         })
 
     return {"answers": results}
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
